@@ -46,6 +46,13 @@ const LOG_EVENT_LABELS = {
     seed_buy_skip: '种子购买跳过',
     plant_seed: '种植种子',
     fertilize: '施加化肥',
+    fertilizer_gift_open: '开启礼包',
+    fertilizer_buy: '购买化肥',
+    mall_free_gifts: '免费礼包',
+    daily_share: '分享奖励',
+    vip_daily_gift: '会员礼包',
+    month_card_gift: '月卡礼包',
+    illustrated_rewards: '图鉴奖励',
     friend_cycle: '好友巡查',
     friend_scan: '好友扫描',
     visit_friend: '访问好友',
@@ -384,15 +391,13 @@ function shouldIgnoreApiErrorLog(path, statusCode) {
 }
 
 function updateFriendSubControlsState() {
-    const master = $('auto-friend');
     const wrap = $('friend-sub-controls');
-    if (!master || !wrap) return;
-    const enabled = !!master.checked;
+    if (!wrap) return;
     ['auto-friend-steal', 'auto-friend-help', 'auto-friend-bad'].forEach(id => {
         const input = $(id);
-        if (input) input.disabled = !enabled;
+        if (input) input.disabled = false;
     });
-    wrap.classList.toggle('disabled', !enabled);
+    wrap.classList.remove('disabled');
 }
 
 function renderLogFilterOptions() {
@@ -587,7 +592,7 @@ function getPollIntervalMs() {
     const pageId = activePage ? activePage.id : '';
     if (!currentAccountId) return 8000;
     if (pageId === 'page-dashboard') return 3000;
-    if (pageId === 'page-farm' || pageId === 'page-friends') return 4000;
+    if (pageId === 'page-personal' || pageId === 'page-friends') return 4000;
     return 6000;
 }
 

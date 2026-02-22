@@ -538,20 +538,15 @@ function handleWorkerMessage(accountId, msg) {
         }
     } else if (msg.type === 'account_kicked') {
         const reason = msg.reason || '未知';
-        log('系统', `账号 ${worker.name} 被踢下线，自动删除账号信息`);
+        log('系统', `账号 ${worker.name} 被踢下线，已自动停止账号`);
         triggerOfflineReminder({
             accountId,
             accountName: worker.name,
             reason: `kickout:${reason}`,
             offlineMs: 0,
         });
-        addAccountLog('kickout_delete', `账号 ${worker.name} 被踢下线，已自动删除`, accountId, worker.name, { reason });
+        addAccountLog('kickout_stop', `账号 ${worker.name} 被踢下线，已自动停止`, accountId, worker.name, { reason });
         stopWorker(accountId);
-        try {
-            deleteAccount(accountId);
-        } catch (e) {
-            log('错误', `删除被踢账号失败: ${e.message}`);
-        }
     } else if (msg.type === 'api_response') {
         const { id, result, error } = msg;
         const req = worker.requests.get(id);
@@ -617,6 +612,7 @@ const dataProvider = {
     getFriendLands: (accountId, gid) => callWorkerApi(accountId, 'getFriendLands', gid),
     doFriendOp: (accountId, gid, opType) => callWorkerApi(accountId, 'doFriendOp', gid, opType),
     getBag: (accountId) => callWorkerApi(accountId, 'getBag'),
+    getDailyGifts: (accountId) => callWorkerApi(accountId, 'getDailyGiftOverview'),
     getSeeds: (accountId) => callWorkerApi(accountId, 'getSeeds'),
 
     setAutomation: async (accountId, key, value) => {
@@ -651,8 +647,6 @@ const dataProvider = {
         const snapshot = store.setUITheme(theme);
         return { ui: snapshot.ui || store.getUI() };
     },
-    debugSellFruits: (accountId) => callWorkerApi(accountId, 'debugSellFruits'),
-
     // 账号管理直接操作 store
     getAccounts: () => {
         const data = getAccounts();

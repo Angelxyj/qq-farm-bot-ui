@@ -40,6 +40,8 @@ const OP_NAMES = {
 
 // 配置: 是否只在有经验时才帮助好友
 const HELP_ONLY_WITH_EXP = true;
+let canGetHelpExp = true;
+let helpAutoDisabledByLimit = false;
 
 function parseTimeToMinutes(timeStr) {
     const m = String(timeStr || '').match(/^(\d{1,2}):(\d{1,2})$/);
@@ -116,8 +118,28 @@ function checkDailyReset() {
             log('系统', '跨日重置，清空操作限制缓存');
         }
         operationLimits.clear();
+        canGetHelpExp = true;
+        if (helpAutoDisabledByLimit) {
+            helpAutoDisabledByLimit = false;
+            log('好友', '新的一天已开始，自动恢复帮忙操作功能', {
+                module: 'friend',
+                event: 'friend_cycle',
+                result: 'ok',
+            });
+        }
         lastResetDate = today;
     }
+}
+
+function autoDisableHelpByExpLimit() {
+    if (!canGetHelpExp) return;
+    canGetHelpExp = false;
+    helpAutoDisabledByLimit = true;
+    log('好友', '今日帮助经验已达上限，自动停止帮忙', {
+        module: 'friend',
+        event: 'friend_cycle',
+        result: 'ok',
+    });
 }
 
 /**
@@ -213,7 +235,8 @@ function getOperationLimitsSummary() {
     return parts;
 }
 
-async function helpWater(friendGid, landIds) {
+async function helpWater(friendGid, landIds, stopWhenExpLimit = false) {
+    const beforeExp = toNum((getUserState() || {}).exp);
     const body = types.WaterLandRequest.encode(types.WaterLandRequest.create({
         land_ids: landIds,
         host_gid: toLong(friendGid),
@@ -221,10 +244,16 @@ async function helpWater(friendGid, landIds) {
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'WaterLand', body);
     const reply = types.WaterLandReply.decode(replyBody);
     updateOperationLimits(reply.operation_limits);
+    if (stopWhenExpLimit) {
+        await sleep(200);
+        const afterExp = toNum((getUserState() || {}).exp);
+        if (afterExp <= beforeExp) autoDisableHelpByExpLimit();
+    }
     return reply;
 }
 
-async function helpWeed(friendGid, landIds) {
+async function helpWeed(friendGid, landIds, stopWhenExpLimit = false) {
+    const beforeExp = toNum((getUserState() || {}).exp);
     const body = types.WeedOutRequest.encode(types.WeedOutRequest.create({
         land_ids: landIds,
         host_gid: toLong(friendGid),
@@ -232,10 +261,16 @@ async function helpWeed(friendGid, landIds) {
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'WeedOut', body);
     const reply = types.WeedOutReply.decode(replyBody);
     updateOperationLimits(reply.operation_limits);
+    if (stopWhenExpLimit) {
+        await sleep(200);
+        const afterExp = toNum((getUserState() || {}).exp);
+        if (afterExp <= beforeExp) autoDisableHelpByExpLimit();
+    }
     return reply;
 }
 
-async function helpInsecticide(friendGid, landIds) {
+async function helpInsecticide(friendGid, landIds, stopWhenExpLimit = false) {
+    const beforeExp = toNum((getUserState() || {}).exp);
     const body = types.InsecticideRequest.encode(types.InsecticideRequest.create({
         land_ids: landIds,
         host_gid: toLong(friendGid),
@@ -243,6 +278,11 @@ async function helpInsecticide(friendGid, landIds) {
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Insecticide', body);
     const reply = types.InsecticideReply.decode(replyBody);
     updateOperationLimits(reply.operation_limits);
+    if (stopWhenExpLimit) {
+        await sleep(200);
+        const afterExp = toNum((getUserState() || {}).exp);
+        if (afterExp <= beforeExp) autoDisableHelpByExpLimit();
+    }
     return reply;
 }
 
@@ -728,7 +768,14 @@ async function visitFriend(friend, totalActions, myGid) {
     const actions = [];
 
     // 1. 帮助操作 (除草/除虫/浇水)
-    if (isAutomationOn('friend_help')) {
+    const helpEnabled = !!isAutomationOn('friend_help');
+    const stopWhenExpLimit = !!isAutomationOn('friend_help_exp_limit');
+    if (!stopWhenExpLimit) canGetHelpExp = true;
+    if (!helpEnabled) {
+        // 自动帮忙关闭，直接跳过帮助操作
+    } else if (stopWhenExpLimit && !canGetHelpExp) {
+        // 今日已达到经验上限后停止帮忙
+    } else {
         const helpOps = [
             { id: 10005, list: status.needWeed, fn: helpWeed, key: 'weed', name: '草', record: 'helpWeed' },
             { id: 10006, list: status.needBug, fn: helpInsecticide, key: 'bug', name: '虫', record: 'helpBug' },
@@ -736,10 +783,15 @@ async function visitFriend(friend, totalActions, myGid) {
         ];
 
         for (const op of helpOps) {
-            if (op.list.length > 0 && (!HELP_ONLY_WITH_EXP || canGetExp(op.id))) {
+            const allowByExp = (!stopWhenExpLimit) || ((!HELP_ONLY_WITH_EXP || canGetExp(op.id)) && canGetHelpExp);
+            if (op.list.length > 0 && allowByExp) {
                 const precheck = await checkCanOperateRemote(gid, op.id);
                 if (precheck.canOperate) {
-                    const count = await runBatchWithFallback(op.list, (ids) => op.fn(gid, ids), (ids) => op.fn(gid, ids));
+                    const count = await runBatchWithFallback(
+                        op.list,
+                        (ids) => op.fn(gid, ids, stopWhenExpLimit),
+                        (ids) => op.fn(gid, ids, stopWhenExpLimit)
+                    );
                     if (count > 0) {
                         actions.push(`${op.name}${count}`);
                         totalActions[op.key] += count;
@@ -821,7 +873,11 @@ async function visitFriend(friend, totalActions, myGid) {
 
 async function checkFriends() {
     const state = getUserState();
-    if (isCheckingFriends || !state.gid || !isAutomationOn('friend')) return false;
+    const helpEnabled = !!isAutomationOn('friend_help');
+    const stealEnabled = !!isAutomationOn('friend_steal');
+    const badEnabled = !!isAutomationOn('friend_bad');
+    const hasAnyFriendOp = helpEnabled || stealEnabled || badEnabled;
+    if (isCheckingFriends || !state.gid || !hasAnyFriendOp) return false;
     if (inFriendQuietHours()) return false;
     
     isCheckingFriends = true;

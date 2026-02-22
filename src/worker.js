@@ -6,10 +6,16 @@ const { loadProto } = require('./proto');
 const { connect, cleanup, getWs, getUserState, networkEvents } = require('./network');
 const { checkFarm, startFarmCheckLoop, stopFarmCheckLoop, refreshFarmCheckLoop, getLandsDetail, getAvailableSeeds, runFarmOperation } = require('./farm');
 const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, getFriendsList, getFriendLandsDetail, doFriendOperation, getOperationLimits } = require('./friend');
-const { initTaskSystem, cleanupTaskSystem, checkAndClaimTasks } = require('./task');
+const { initTaskSystem, cleanupTaskSystem, checkAndClaimTasks, getTaskClaimDailyState, getTaskDailyStateLikeApp, getGrowthTaskStateLikeApp } = require('./task');
+const { checkAndClaimEmails } = require('./email');
+const { getEmailDailyState } = require('./email');
+const { autoBuyOrganicFertilizer, getFertilizerBuyDailyState, buyFreeGifts, getFreeGiftDailyState } = require('./mall');
+const { performDailyShare, getShareDailyState } = require('./share');
+const { performDailyVipGift, getVipDailyState } = require('./qqvip');
+const { performDailyMonthCardGift, getMonthCardDailyState } = require('./monthcard');
 const { initStatusBar, cleanupStatusBar, setStatusPlatform, statusData } = require('./status');
 const { recordGoldExp, getStats, setInitialValues, resetSessionGains, recordOperation } = require('./stats');
-const { sellAllFruits, debugSellFruits, getBag, getBagItems } = require('./warehouse');
+const { sellAllFruits, getBag, getBagItems, openFertilizerGiftPacksSilently, getFertilizerGiftDailyState } = require('./warehouse');
 const { processInviteCodes } = require('./invite');
 const { setLogHook, log, toNum } = require('./utils');
 const { setRecordGoldExpHook } = require('./status');
@@ -60,6 +66,57 @@ let onFarmHarvested = null;
 let harvestSellRunning = false;
 let onWsError = null;
 let wsErrorHandledAt = 0;
+let dailyRoutineTimer = null;
+let lastDailyRunDate = '';
+let dailyRoutineImmediateTimer = null;
+
+function isDailyRoutineEnabled(auto) {
+    const a = (auto && typeof auto === 'object') ? auto : {};
+    return !!(a.email && a.free_gifts && a.share_reward && a.vip_gift && a.month_card);
+}
+
+function getLocalDateKey() {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
+
+async function runDailyRoutines(force = false) {
+    if (!loginReady) return;
+    const auto = getAutomation();
+    try {
+        if (auto.email) await checkAndClaimEmails(force);
+        if (auto.share_reward) await performDailyShare(force);
+        if (auto.month_card) await performDailyMonthCardGift(force);
+        if (auto.free_gifts) await buyFreeGifts(force);
+        if (auto.vip_gift) await performDailyVipGift(force);
+    } catch (e) {
+        log('系统', `每日任务调度失败: ${e.message}`, { module: 'system', event: 'daily_routine', result: 'error' });
+    }
+}
+
+function stopDailyRoutineTimer() {
+    if (dailyRoutineTimer) {
+        clearInterval(dailyRoutineTimer);
+        dailyRoutineTimer = null;
+    }
+}
+
+function startDailyRoutineTimer() {
+    stopDailyRoutineTimer();
+    lastDailyRunDate = getLocalDateKey();
+    // 新账号登录后按当前设置强制执行一次领取
+    runDailyRoutines(true).catch(() => null);
+    dailyRoutineTimer = setInterval(() => {
+        if (!loginReady) return;
+        const today = getLocalDateKey();
+        if (today === lastDailyRunDate) return;
+        lastDailyRunDate = today;
+        runDailyRoutines(true).catch(() => null);
+    }, 30 * 1000);
+}
 
 function normalizeIntervalRangeSec(minSec, maxSec, fallbackSec) {
     const fallback = Math.max(1, parseInt(fallbackSec, 10) || 1);
@@ -128,12 +185,14 @@ async function runUnifiedTick() {
 
         if (dueFarm) {
             if (auto.farm) await checkFarm();
-            // 任务检查与农场轮询同节拍执行，不再使用任务独立轮询
             if (auto.task) await checkAndClaimTasks();
+            if (auto.email) await checkAndClaimEmails();
+            if (auto.fertilizer_gift) await openFertilizerGiftPacksSilently();
+            if (auto.fertilizer_buy) await autoBuyOrganicFertilizer();
             nextFarmRunAt = Date.now() + farmMs;
         }
         if (dueFriend) {
-            if (auto.friend) await checkFriends();
+            if (auto.friend_steal || auto.friend_help || auto.friend_bad) await checkFriends();
             nextFriendRunAt = Date.now() + friendMs;
         }
     } catch (e) {
@@ -184,6 +243,7 @@ function stopUnifiedScheduler() {
 }
 
 function applyRuntimeConfig(snapshot, syncNow = false) {
+    const prevAuto = getAutomation();
     applyConfigSnapshot(snapshot || {}, { persist: false });
     const rev = Number((snapshot || {}).__revision || 0);
     if (rev > 0) appliedConfigRevision = rev;
@@ -201,6 +261,25 @@ function applyRuntimeConfig(snapshot, syncNow = false) {
         refreshFriendCheckLoop(200);
         resetUnifiedSchedule();
         scheduleUnifiedNextTick();
+
+        // 保存设置后若“自动处理日常”开启，则立即执行一次
+        const hasAutomationPayload = !!(snapshot && snapshot.automation && typeof snapshot.automation === 'object');
+        if (hasAutomationPayload) {
+            const nextAuto = getAutomation();
+            const wasEnabled = isDailyRoutineEnabled(prevAuto);
+            const nowEnabled = isDailyRoutineEnabled(nextAuto);
+            if (!wasEnabled && nowEnabled) {
+                if (dailyRoutineImmediateTimer) {
+                    clearTimeout(dailyRoutineImmediateTimer);
+                    dailyRoutineImmediateTimer = null;
+                }
+                // 保存设置时 /api/automation 可能触发多次 config_sync，这里做防抖且仅关->开触发
+                dailyRoutineImmediateTimer = setTimeout(() => {
+                    dailyRoutineImmediateTimer = null;
+                    runDailyRoutines(true).catch(() => null);
+                }, 400);
+            }
+        }
     }
 
     if (syncNow) syncStatus();
@@ -330,10 +409,14 @@ async function startBot(config) {
 
         // 登录成功后启动各模块
         await processInviteCodes();
+        if (getAutomation().fertilizer_gift) {
+            await openFertilizerGiftPacksSilently().catch(() => 0);
+        }
         startFarmCheckLoop({ externalScheduler: true });
         startFriendCheckLoop({ externalScheduler: true });
         startUnifiedScheduler();
-        initTaskSystem();
+        // 每日礼包/任务改为跨日调度，不在农场轮询内执行
+        startDailyRoutineTimer();
 
         // 立即发送一次状态
         syncStatus();
@@ -366,6 +449,11 @@ async function stopBot() {
     }
     stopFarmCheckLoop();
     stopFriendCheckLoop();
+    stopDailyRoutineTimer();
+    if (dailyRoutineImmediateTimer) {
+        clearTimeout(dailyRoutineImmediateTimer);
+        dailyRoutineImmediateTimer = null;
+    }
     cleanupTaskSystem();
     if (statusSyncTimer) {
         clearInterval(statusSyncTimer);
@@ -379,7 +467,7 @@ async function stopBot() {
 
 function onKickout(payload) {
     const reason = payload && payload.reason ? payload.reason : '未知';
-    log('系统', `检测到踢下线，准备自动删除账号。原因: ${reason}`);
+    log('系统', `检测到踢下线，准备自动停止账号。原因: ${reason}`);
     if (process.send) {
         process.send({ type: 'account_kicked', reason });
     }
@@ -428,9 +516,8 @@ async function handleApiCall(msg) {
                 result = getPlantRankings(args[0]); // sortBy
                 break;
             }
-            case 'debugSellFruits':
-                await require('./warehouse').debugSellFruits();
-                result = { ok: true };
+            case 'getDailyGiftOverview':
+                result = await getDailyGiftOverview();
                 break;
             default:
                 error = 'Unknown method';
@@ -442,6 +529,51 @@ async function handleApiCall(msg) {
     if (process.send) {
         process.send({ type: 'api_response', id, result, error });
     }
+}
+
+async function getDailyGiftOverview() {
+    const auto = getAutomation() || {};
+    const task = getTaskDailyStateLikeApp
+        ? await getTaskDailyStateLikeApp()
+        : (getTaskClaimDailyState ? getTaskClaimDailyState() : { doneToday: false, lastClaimAt: 0 });
+    const growthTask = getGrowthTaskStateLikeApp
+        ? await getGrowthTaskStateLikeApp()
+        : { doneToday: false, completedCount: 0, totalCount: 0, tasks: [] };
+    const email = getEmailDailyState ? getEmailDailyState() : { doneToday: false, lastCheckAt: 0 };
+    const gift = getFertilizerGiftDailyState ? getFertilizerGiftDailyState() : { doneToday: false, lastOpenAt: 0 };
+    const buy = getFertilizerBuyDailyState ? getFertilizerBuyDailyState() : { doneToday: false, pausedNoGoldToday: false, lastSuccessAt: 0 };
+    const free = getFreeGiftDailyState ? getFreeGiftDailyState() : { doneToday: false, lastClaimAt: 0 };
+    const share = getShareDailyState ? getShareDailyState() : { doneToday: false, lastClaimAt: 0 };
+    const vip = getVipDailyState ? getVipDailyState() : { doneToday: false, lastClaimAt: 0 };
+    const month = getMonthCardDailyState ? getMonthCardDailyState() : { doneToday: false, lastClaimAt: 0 };
+
+    return {
+        date: new Date().toISOString().slice(0, 10),
+        growth: {
+            key: 'growth_task',
+            label: '成长任务',
+            doneToday: !!growthTask.doneToday,
+            completedCount: Number(growthTask.completedCount || 0),
+            totalCount: Number(growthTask.totalCount || 0),
+            tasks: Array.isArray(growthTask.tasks) ? growthTask.tasks : [],
+        },
+        gifts: [
+            {
+                key: 'task_claim',
+                label: '每日任务',
+                enabled: !!auto.task,
+                doneToday: !!task.doneToday,
+                lastAt: Number(task.lastClaimAt || 0),
+                completedCount: Number(task.completedCount || 0),
+                totalCount: Number(task.totalCount || 3),
+            },
+            { key: 'email_rewards', label: '邮箱奖励', enabled: !!auto.email, doneToday: !!email.doneToday, lastAt: Number(email.lastCheckAt || 0) },
+            { key: 'mall_free_gifts', label: '商城免费礼包', enabled: !!auto.free_gifts, doneToday: !!free.doneToday, lastAt: Number(free.lastClaimAt || 0) },
+            { key: 'daily_share', label: '分享礼包', enabled: !!auto.share_reward, doneToday: !!share.doneToday, lastAt: Number(share.lastClaimAt || 0) },
+            { key: 'vip_daily_gift', label: '会员礼包', enabled: !!auto.vip_gift, doneToday: !!vip.doneToday, lastAt: Number(vip.lastClaimAt || 0) },
+            { key: 'month_card_gift', label: '月卡礼包', enabled: !!auto.month_card, doneToday: !!month.doneToday, lastAt: Number(month.lastClaimAt || 0) },
+        ],
+    };
 }
 
 function syncStatus() {

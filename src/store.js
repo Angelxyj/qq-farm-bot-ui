@@ -23,18 +23,24 @@ const DEFAULT_OFFLINE_REMINDER = {
     msg: '账号下线',
     offlineDeleteSec: 120,
 };
-
 // ============ 全局配置 ============
 const DEFAULT_ACCOUNT_CONFIG = {
     automation: {
         farm: true,
         farm_push: true,   // 收到 LandsNotify 推送时是否立即触发巡田
         land_upgrade: true, // 是否自动升级土地
-        friend: true,
+        friend_help_exp_limit: true, // 帮忙经验达上限后自动停止帮忙
         friend_steal: true, // 偷菜
         friend_help: true,  // 帮忙
         friend_bad: false,  // 捣乱(放虫草)
         task: true,
+        email: true,
+        fertilizer_gift: false,
+        fertilizer_buy: false,
+        free_gifts: true,
+        share_reward: true,
+        vip_gift: true,
+        month_card: true,
         sell: true,
         fertilizer: 'both',
     },
@@ -54,6 +60,7 @@ const DEFAULT_ACCOUNT_CONFIG = {
         end: '07:00',
     },
 };
+const ALLOWED_AUTOMATION_KEYS = new Set(Object.keys(DEFAULT_ACCOUNT_CONFIG.automation));
 
 let accountFallbackConfig = {
     ...DEFAULT_ACCOUNT_CONFIG,
@@ -118,9 +125,17 @@ function normalizeOfflineReminder(input) {
 }
 
 function cloneAccountConfig(base = DEFAULT_ACCOUNT_CONFIG) {
+    const srcAutomation = (base && base.automation && typeof base.automation === 'object')
+        ? base.automation
+        : {};
+    const automation = { ...DEFAULT_ACCOUNT_CONFIG.automation };
+    for (const key of Object.keys(automation)) {
+        if (srcAutomation[key] !== undefined) automation[key] = srcAutomation[key];
+    }
+
     return {
         ...base,
-        automation: { ...(base.automation || DEFAULT_ACCOUNT_CONFIG.automation) },
+        automation,
         intervals: { ...(base.intervals || DEFAULT_ACCOUNT_CONFIG.intervals) },
         friendQuietHours: { ...(base.friendQuietHours || DEFAULT_ACCOUNT_CONFIG.friendQuietHours) },
         plantingStrategy: ALLOWED_PLANTING_STRATEGIES.includes(String(base.plantingStrategy || ''))
@@ -143,7 +158,7 @@ function normalizeAccountConfig(input, fallback = accountFallbackConfig) {
 
     if (src.automation && typeof src.automation === 'object') {
         for (const [k, v] of Object.entries(src.automation)) {
-            if (cfg.automation[k] === undefined) continue;
+            if (!ALLOWED_AUTOMATION_KEYS.has(k)) continue;
             if (k === 'fertilizer') {
                 const allowed = ['both', 'normal', 'organic', 'none'];
                 cfg.automation[k] = allowed.includes(v) ? v : cfg.automation[k];
@@ -234,6 +249,11 @@ function loadGlobalConfig() {
                     if (!sid) continue;
                     globalConfig.accountConfigs[sid] = normalizeAccountConfig(cfg, accountFallbackConfig);
                 }
+                // 统一规范化，确保内存中不残留旧字段（如 automation.friend）
+                globalConfig.defaultAccountConfig = cloneAccountConfig(accountFallbackConfig);
+                for (const [id, cfg] of Object.entries(globalConfig.accountConfigs)) {
+                    globalConfig.accountConfigs[id] = normalizeAccountConfig(cfg, accountFallbackConfig);
+                }
             }
             globalConfig.ui = { ...globalConfig.ui, ...(data.ui || {}) };
             const theme = String(globalConfig.ui.theme || '').toLowerCase();
@@ -248,10 +268,29 @@ function loadGlobalConfig() {
     }
 }
 
+function sanitizeGlobalConfigBeforeSave() {
+    // default 配置统一白名单净化
+    accountFallbackConfig = normalizeAccountConfig(globalConfig.defaultAccountConfig, DEFAULT_ACCOUNT_CONFIG);
+    globalConfig.defaultAccountConfig = cloneAccountConfig(accountFallbackConfig);
+
+    // 每个账号配置也统一净化
+    const map = (globalConfig.accountConfigs && typeof globalConfig.accountConfigs === 'object')
+        ? globalConfig.accountConfigs
+        : {};
+    const nextMap = {};
+    for (const [id, cfg] of Object.entries(map)) {
+        const sid = String(id || '').trim();
+        if (!sid) continue;
+        nextMap[sid] = normalizeAccountConfig(cfg, accountFallbackConfig);
+    }
+    globalConfig.accountConfigs = nextMap;
+}
+
 // 保存全局配置
 function saveGlobalConfig() {
     ensureDataDir();
     try {
+        sanitizeGlobalConfigBeforeSave();
         console.log('[系统] 正在保存配置到:', STORE_FILE);
         fs.writeFileSync(STORE_FILE, JSON.stringify(globalConfig, null, 2), 'utf8');
     } catch (e) {

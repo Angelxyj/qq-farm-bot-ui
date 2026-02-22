@@ -380,11 +380,13 @@ $('fertilizer-select').addEventListener('change', async () => {
     markAutomationPending('fertilizer');
 });
 
-['auto-farm', 'auto-farm-push', 'auto-land-upgrade', 'auto-friend', 'auto-task', 'auto-sell', 'auto-friend-steal', 'auto-friend-help', 'auto-friend-bad'].forEach((id, i) => {
+['auto-farm', 'auto-farm-push', 'auto-land-upgrade', 'auto-friend', 'auto-task', 'auto-daily-routine', 'auto-fertilizer-gift', 'auto-fertilizer-buy', 'auto-sell', 'auto-friend-steal', 'auto-friend-help', 'auto-friend-bad'].forEach((id, i) => {
     // 这里原来的 id 是数组里的元素，key 需要处理
     // id: auto-farm -> key: farm
     // id: auto-friend-steal -> key: friend_steal
-    const key = id.replace('auto-', '').replace(/-/g, '_');
+    const key = (id === 'auto-friend')
+        ? 'friend_help_exp_limit'
+        : id.replace('auto-', '').replace(/-/g, '_');
     const el = document.getElementById(id);
     if (el) {
         el.addEventListener('change', async () => {
@@ -460,8 +462,15 @@ $('btn-save-settings').addEventListener('click', async () => {
             farm: !!$('auto-farm').checked,
             farm_push: !!$('auto-farm-push').checked,
             land_upgrade: !!$('auto-land-upgrade').checked,
-            friend: !!$('auto-friend').checked,
+            friend_help_exp_limit: !!$('auto-friend').checked,
             task: !!$('auto-task').checked,
+            email: !!$('auto-daily-routine').checked,
+            fertilizer_gift: !!$('auto-fertilizer-gift').checked,
+            fertilizer_buy: !!$('auto-fertilizer-buy').checked,
+            free_gifts: !!$('auto-daily-routine').checked,
+            share_reward: !!$('auto-daily-routine').checked,
+            vip_gift: !!$('auto-daily-routine').checked,
+            month_card: !!$('auto-daily-routine').checked,
             sell: !!$('auto-sell').checked,
             fertilizer: $('fertilizer-select').value,
             friend_steal: !!$('auto-friend-steal').checked,
@@ -616,8 +625,11 @@ async function loadSettings() {
             $('auto-farm').checked = !!auto.farm;
             $('auto-farm-push').checked = !!auto.farm_push;
             $('auto-land-upgrade').checked = !!auto.land_upgrade;
-            $('auto-friend').checked = !!auto.friend;
+            $('auto-friend').checked = !!auto.friend_help_exp_limit;
             $('auto-task').checked = !!auto.task;
+            $('auto-daily-routine').checked = !!(auto.email && auto.free_gifts && auto.share_reward && auto.vip_gift && auto.month_card);
+            $('auto-fertilizer-gift').checked = !!auto.fertilizer_gift;
+            $('auto-fertilizer-buy').checked = !!auto.fertilizer_buy;
             $('auto-sell').checked = !!auto.sell;
             $('auto-friend-steal').checked = !!auto.friend_steal;
             $('auto-friend-help').checked = !!auto.friend_help;
@@ -709,32 +721,120 @@ async function loadBag() {
     `).join('');
 }
 
+async function loadDailyGifts() {
+    const listEl = $('daily-gifts-list');
+    const sumEl = $('daily-gifts-summary');
+    const growthListEl = $('growth-task-list');
+    const growthFillEl = $('growth-task-fill');
+    if (!listEl || !sumEl || !growthListEl || !growthFillEl) return;
+    if (!currentAccountId) {
+        sumEl.textContent = '请选择账号';
+        listEl.innerHTML = '<div class="op-stat"><span class="label"><i class="fas fa-info-circle"></i> 暂无账号</span><span class="count">--</span></div>';
+        growthFillEl.style.width = '0%';
+        growthListEl.innerHTML = '<div class="growth-task-row"><span class="growth-task-name"><i class="fas fa-info-circle"></i> 暂无账号</span><span class="growth-task-status">--</span></div>';
+        return;
+    }
+    growthFillEl.style.width = '0%';
+    sumEl.textContent = '加载中...';
+    const data = await api('/api/daily-gifts');
+    const growth = (data && data.growth && typeof data.growth === 'object') ? data.growth : null;
+    const growthTasks = growth && Array.isArray(growth.tasks) ? growth.tasks : [];
+    const growthCompleted = Number(growth && growth.completedCount || 0);
+    const growthTotal = Number(growth && growth.totalCount || 0);
+    const growthPct = growthTotal > 0 ? Math.max(0, Math.min(100, (growthCompleted / growthTotal) * 100)) : 0;
+    growthFillEl.style.width = `${growthPct}%`;
+    if (!growthTasks.length) {
+        growthListEl.innerHTML = '<div class="growth-task-row"><span class="growth-task-name"><i class="fas fa-info-circle"></i> 暂无数据</span><span class="growth-task-status">--</span></div>';
+    } else {
+        growthListEl.innerHTML = growthTasks.map((t) => {
+            const progress = Math.max(0, Number(t && t.progress || 0));
+            const total = Math.max(0, Number(t && t.totalProgress || 0));
+            const isUnlocked = !!(t && t.isUnlocked);
+            const isCompleted = !!(t && t.isCompleted);
+            const status = isUnlocked ? (total > 0 ? `${progress}/${total}` : (isCompleted ? '✓' : '✕')) : '-';
+            const cls = isUnlocked ? (isCompleted ? 'color:var(--ok)' : '') : 'opacity:.65';
+            return `<div class="growth-task-row"><span class="growth-task-name"><i class="fas fa-seedling"></i>${escapeHtml(String((t && t.desc) || '成长任务'))}</span><span class="growth-task-status" style="${cls}">${status}</span></div>`;
+        }).join('');
+    }
+
+    const gifts = (data && Array.isArray(data.gifts)) ? data.gifts : [];
+    const doneCount = gifts.filter(g => !!g.doneToday).length;
+    sumEl.textContent = `今日完成 ${doneCount}/${gifts.length || 0}`;
+    if (!gifts.length) {
+        listEl.innerHTML = '<div class="op-stat"><span class="label"><i class="fas fa-info-circle"></i> 暂无数据</span><span class="count">--</span></div>';
+        return;
+    }
+    const rows = gifts.map((g) => {
+        let status = g.doneToday ? '✓' : (g.enabled ? '✕' : '-');
+        if (g.key === 'task_claim') {
+            const done = Math.max(0, Number(g.completedCount || 0));
+            const total = Math.max(1, Number(g.totalCount || 3));
+            status = `${done}/${total}`;
+        }
+        if (g.key === 'fertilizer_buy' && !g.doneToday && g.pausedNoGoldToday) status = '点券不足暂停';
+        const cls = g.key === 'task_claim'
+            ? ((Number(g.completedCount || 0) >= Number(g.totalCount || 3)) ? 'color:var(--ok)' : '')
+            : (g.doneToday ? 'color:var(--ok)' : (g.enabled ? '' : 'opacity:.65'));
+        return `<div class="op-stat"><span class="label"><i class="fas fa-gift"></i>${g.label || g.key}</span><span class="count" style="${cls}">${status}</span></div>`;
+    });
+    listEl.innerHTML = rows.join('');
+}
+
 // ============ UI 交互 ============
+function activatePage(pageName) {
+    const target = String(pageName || '').trim();
+    if (!target) return;
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+    const nav = document.querySelector(`.nav-item[data-page="${target}"]`);
+    if (nav) nav.classList.add('active');
+    const page = document.getElementById('page-' + target);
+    if (page) page.classList.add('active');
+
+    const titleEl = $('page-title');
+    if (titleEl) {
+        if (nav) titleEl.textContent = nav.textContent.trim();
+        else {
+            const fallbackMap = {
+                dashboard: '概览',
+                personal: '个人',
+                friends: '好友',
+                accounts: '账号',
+                analytics: '分析',
+                settings: '设置',
+            };
+            titleEl.textContent = fallbackMap[target] || '概览';
+        }
+    }
+
+    if (target === 'dashboard') renderOpsList(lastOperationsData);
+    if (target === 'personal') {
+        loadDailyGifts();
+        loadBag();
+        loadFarm();
+    }
+    if (target === 'friends') loadFriends();
+    if (target === 'analytics') loadAnalytics();
+    if (target === 'settings') loadSettings();
+    if (target === 'accounts') {
+        renderAccountManager();
+        pollAccountLogs();
+    }
+}
+
 // 导航切换
 document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', e => {
         e.preventDefault();
-        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-        item.classList.add('active');
-        const pageId = 'page-' + item.dataset.page;
-        const page = document.getElementById(pageId);
-        if (page) page.classList.add('active');
-
-        $('page-title').textContent = item.textContent.trim();
-        if (item.dataset.page === 'dashboard') renderOpsList(lastOperationsData);
-
-        if (item.dataset.page === 'farm') loadFarm();
-        if (item.dataset.page === 'bag') loadBag();
-        if (item.dataset.page === 'friends') loadFriends();
-        if (item.dataset.page === 'analytics') loadAnalytics();
-        if (item.dataset.page === 'settings') loadSettings();
-        if (item.dataset.page === 'accounts') {
-            renderAccountManager();
-            pollAccountLogs();
-        }
+        activatePage(item.dataset.page);
     });
 });
+
+const goAnalyticsBtn = $('btn-go-analytics');
+if (goAnalyticsBtn) {
+    goAnalyticsBtn.addEventListener('click', () => activatePage('analytics'));
+}
 
 // 数据分析
 async function loadAnalytics() {

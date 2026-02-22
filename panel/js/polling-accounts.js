@@ -31,7 +31,11 @@ async function loadAccounts() {
                 updateTopbarAccount(accounts.find(a => a.id === currentAccountId) || null);
                 if (!hasCurrent && prevCurrentId) {
                     // 当前账号被删除后，农场/好友页数据立即切换到新账号
-                    if ($('page-farm').classList.contains('active')) loadFarm();
+                    if ($('page-personal').classList.contains('active')) {
+                        loadDailyGifts();
+                        loadBag();
+                        loadFarm();
+                    }
                     if ($('page-friends').classList.contains('active')) loadFriends();
                 }
             }
@@ -79,8 +83,11 @@ function switchAccount(id) {
     pollFertilizerBuckets(true);
     pollLogs();
     Promise.resolve(loadSettings()).catch(() => null);
-    if ($('page-farm').classList.contains('active')) loadFarm();
-    if ($('page-bag').classList.contains('active')) loadBag();
+    if ($('page-personal').classList.contains('active')) {
+        loadDailyGifts();
+        loadBag();
+        loadFarm();
+    }
     if ($('page-friends').classList.contains('active')) loadFriends();
 }
 
@@ -376,7 +383,7 @@ async function pollStatus(options = {}) {
         if (!pendingAutomationKeys.has('farm')) $('auto-farm').checked = !!auto.farm;
         if (!pendingAutomationKeys.has('farm_push')) $('auto-farm-push').checked = !!auto.farm_push;
         if (!pendingAutomationKeys.has('land_upgrade')) $('auto-land-upgrade').checked = !!auto.land_upgrade;
-        if (!pendingAutomationKeys.has('friend')) $('auto-friend').checked = !!auto.friend;
+        if (!pendingAutomationKeys.has('friend_help_exp_limit')) $('auto-friend').checked = !!auto.friend_help_exp_limit;
         if (!pendingAutomationKeys.has('task')) $('auto-task').checked = !!auto.task;
         if (!pendingAutomationKeys.has('sell')) $('auto-sell').checked = !!auto.sell;
 

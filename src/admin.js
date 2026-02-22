@@ -207,12 +207,12 @@ function startAdminServer(dataProvider) {
         }
     });
 
-    // API: 手动出售（调试）
-    app.post('/api/sell/debug', async (req, res) => {
+    // API: 每日礼包状态总览
+    app.get('/api/daily-gifts', async (req, res) => {
         const id = getAccId(req);
         if (!id) return res.status(400).json({ ok: false });
         try {
-            const data = await provider.debugSellFruits(id);
+            const data = await provider.getDailyGifts(id);
             res.json({ ok: true, data });
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message });
