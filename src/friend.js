@@ -112,7 +112,11 @@ async function leaveFriendFarm(friendGid) {
  * 检查是否需要重置每日限制 (0点刷新)
  */
 function checkDailyReset() {
-    const today = new Date().toISOString().slice(0, 10);  // YYYY-MM-DD
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const today = `${y}-${m}-${d}`;  // 本地日期 YYYY-MM-DD
     if (lastResetDate !== today) {
         if (lastResetDate !== '') {
             log('系统', '跨日重置，清空操作限制缓存');

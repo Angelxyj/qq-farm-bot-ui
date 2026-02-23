@@ -22,13 +22,28 @@ const { setRecordGoldExpHook } = require('./status');
 const { getLevelExpProgress } = require('./gameConfig');
 const { getAutomation, getPreferredSeed, getConfigSnapshot, applyConfigSnapshot } = require('./store');
 
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+function formatLocalDateTime24(date = new Date()) {
+    const d = date instanceof Date ? date : new Date();
+    const y = d.getFullYear();
+    const m = pad2(d.getMonth() + 1);
+    const day = pad2(d.getDate());
+    const hh = pad2(d.getHours());
+    const mm = pad2(d.getMinutes());
+    const ss = pad2(d.getSeconds());
+    return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+}
+
 // 捕获日志发送给主进程
 setLogHook((tag, msg, isWarn, meta) => {
     if (process.send) {
         process.send({
             type: 'log',
             data: {
-                time: new Date().toLocaleString(),
+                time: formatLocalDateTime24(new Date()),
                 tag,
                 msg,
                 isWarn,

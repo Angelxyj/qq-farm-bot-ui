@@ -19,6 +19,15 @@ const FERTILIZER_RELATED_IDS = new Set([
     80001, 80002, 80003, 80004, // 普通化肥道具
     80011, 80012, 80013, 80014, // 有机化肥道具
 ]);
+const FERTILIZER_CONTAINER_LIMIT_HOURS = 990;
+const NORMAL_CONTAINER_ID = 1011;
+const ORGANIC_CONTAINER_ID = 1012;
+const NORMAL_FERTILIZER_ITEM_HOURS = new Map([
+    [80001, 1], [80002, 4], [80003, 8], [80004, 12],
+]);
+const ORGANIC_FERTILIZER_ITEM_HOURS = new Map([
+    [80011, 1], [80012, 4], [80013, 8], [80014, 12],
+]);
 let fertilizerGiftDoneDateKey = '';
 let fertilizerGiftLastOpenAt = 0;
 let fertilizerGiftNoopLogAt = 0;
@@ -105,6 +114,8 @@ function getBagItems(bagReply) {
 function isFertilizerRelatedItemId(itemId) {
     const id = Number(itemId) || 0;
     if (id <= 0) return false;
+    // 禁止对容器道具执行使用，避免触发 1011/1012 补充逻辑
+    if (id === 1011 || id === 1012) return false;
     if (FERTILIZER_RELATED_IDS.has(id)) return true;
     const info = getItemById(id);
     if (!info || typeof info !== 'object') return false;
@@ -124,20 +135,77 @@ function collectFertilizerUsePayload(items) {
     return Array.from(merged.entries()).map(([id, count]) => ({ id, count }));
 }
 
+function getContainerHoursFromBagItems(items) {
+    let normalSec = 0;
+    let organicSec = 0;
+    for (const it of (items || [])) {
+        const id = toNum(it && it.id);
+        const count = Math.max(0, toNum(it && it.count));
+        if (id === NORMAL_CONTAINER_ID) normalSec = count;
+        if (id === ORGANIC_CONTAINER_ID) organicSec = count;
+    }
+    return {
+        normal: normalSec / 3600,
+        organic: organicSec / 3600,
+    };
+}
+
+function getFertilizerItemTypeAndHours(itemId) {
+    const id = Number(itemId) || 0;
+    if (NORMAL_FERTILIZER_ITEM_HOURS.has(id)) {
+        return { type: 'normal', perItemHours: NORMAL_FERTILIZER_ITEM_HOURS.get(id) };
+    }
+    if (ORGANIC_FERTILIZER_ITEM_HOURS.has(id)) {
+        return { type: 'organic', perItemHours: ORGANIC_FERTILIZER_ITEM_HOURS.get(id) };
+    }
+    const info = getItemById(id) || {};
+    const interactionType = String(info.interaction_type || '').toLowerCase();
+    if (interactionType === 'fertilizer') return { type: 'normal', perItemHours: 1 };
+    if (interactionType === 'fertilizerpro') return { type: 'organic', perItemHours: 1 };
+    return { type: 'other', perItemHours: 0 };
+}
+
+function isFertilizerContainerFullError(err) {
+    const msg = String((err && err.message) || '');
+    return msg.includes('code=1003002')
+        || msg.includes('普通化肥容器已达到上限')
+        || msg.includes('普通化肥容器已满')
+        || msg.includes('有机化肥容器已达到上限')
+        || msg.includes('有机化肥容器已满');
+}
+
 async function autoOpenFertilizerGiftPacks() {
     try {
         const bagReply = await getBag();
-        const payloads = collectFertilizerUsePayload(getBagItems(bagReply));
+        const bagItems = getBagItems(bagReply);
+        const payloads = collectFertilizerUsePayload(bagItems);
         if (payloads.length <= 0) {
             return 0;
         }
+        const containerHours = getContainerHoursFromBagItems(bagItems);
 
         let opened = 0;
         const details = [];
         // 按条目 BatchUse，避免数量大时逐个 Use 造成请求风暴
         for (const row of payloads) {
             const itemId = Number(row.id) || 0;
-            const useCount = Math.max(1, Number(row.count) || 0);
+            const rawCount = Math.max(1, Number(row.count) || 0);
+            const { type, perItemHours } = getFertilizerItemTypeAndHours(itemId);
+            let useCount = rawCount;
+
+            // 容器达到 990h 后不再使用对应化肥道具；未达到时也按剩余可用小时裁剪数量
+            if (type === 'normal' || type === 'organic') {
+                const currentHours = type === 'normal' ? containerHours.normal : containerHours.organic;
+                if (currentHours >= FERTILIZER_CONTAINER_LIMIT_HOURS) {
+                    continue;
+                }
+                if (perItemHours > 0) {
+                    const remainHours = Math.max(0, FERTILIZER_CONTAINER_LIMIT_HOURS - currentHours);
+                    const maxCountByHours = Math.floor(remainHours / perItemHours);
+                    useCount = Math.max(0, Math.min(rawCount, maxCountByHours));
+                    if (useCount <= 0) continue;
+                }
+            }
             const itemInfo = getItemById(itemId);
             const itemName = itemInfo && itemInfo.name ? String(itemInfo.name) : `物品#${itemId}`;
             let used = 0;
@@ -145,16 +213,16 @@ async function autoOpenFertilizerGiftPacks() {
                 await batchUseItems([{ itemId, count: useCount, uid: 0 }]);
                 used = useCount;
             } catch (e) {
-                // 个别协议环境不支持当前 BatchUse 形态时回退逐个 Use
-                for (let i = 0; i < useCount; i++) {
-                    await useItem(itemId, 1, []);
-                    used += 1;
-                    if (i + 1 < useCount) await sleep(40);
-                }
+                // 临时关闭回退 Use：BatchUse 失败时直接跳过该条目
+                // await useItem(itemId, 999, []);
+                // used = useCount;
+                used = 0;
             }
             if (used > 0) {
                 opened += used;
                 details.push(`${itemName}x${used}`);
+                if (type === 'normal' && perItemHours > 0) containerHours.normal += used * perItemHours;
+                if (type === 'organic' && perItemHours > 0) containerHours.organic += used * perItemHours;
             }
             await sleep(100);
         }
@@ -171,6 +239,9 @@ async function autoOpenFertilizerGiftPacks() {
         }
         return opened;
     } catch (e) {
+        if (isFertilizerContainerFullError(e)) {
+            return 0;
+        }
         logWarn('仓库', `开启化肥礼包失败: ${e.message}`, {
             module: 'warehouse',
             event: 'fertilizer_gift_open',

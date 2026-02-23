@@ -21,6 +21,21 @@ let configRevision = Date.now();
 const OPERATION_KEYS = ['harvest', 'water', 'weed', 'bug', 'fertilize', 'plant', 'steal', 'helpWater', 'helpWeed', 'helpBug', 'taskClaim', 'sell', 'upgrade'];
 const reloginWatchers = new Map(); // key: accountId:loginCode
 
+function pad2(n) {
+    return String(n).padStart(2, '0');
+}
+
+function formatLocalDateTime24(date = new Date()) {
+    const d = date instanceof Date ? date : new Date();
+    const y = d.getFullYear();
+    const m = pad2(d.getMonth() + 1);
+    const day = pad2(d.getDate());
+    const hh = pad2(d.getHours());
+    const mm = pad2(d.getMinutes());
+    const ss = pad2(d.getSeconds());
+    return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+}
+
 // 打包后 worker 由当前可执行文件以 --worker 模式启动
 const isWorkerProcess = process.env.FARM_WORKER === '1';
 if (isWorkerProcess) {
@@ -61,7 +76,7 @@ function broadcastConfigToWorkers(targetAccountId = '') {
 }
 
 function log(tag, msg) {
-    const time = new Date().toLocaleString();
+    const time = formatLocalDateTime24(new Date());
     console.log(`[${tag}] ${msg}`);
     const moduleName = (tag === '系统' || tag === '错误') ? 'system' : '';
     const entry = {
@@ -78,7 +93,7 @@ function log(tag, msg) {
 
 function addAccountLog(action, msg, accountId = '', accountName = '', extra = {}) {
     const entry = {
-        time: new Date().toLocaleString(),
+        time: formatLocalDateTime24(new Date()),
         action,
         msg,
         accountId: accountId ? String(accountId) : '',

@@ -821,8 +821,8 @@ body.light-theme .progress { background: rgba(0,0,0,0.08); }
 .land-cell .id { position: absolute; left: 6px; top: 6px; font-size: calc(11px * var(--font-scale)); }
 .land-cell .needs { position: absolute; right: 6px; bottom: 6px; font-size: calc(11px * var(--font-scale)); background: var(--danger); color: #fff; padding: 1px 5px; border-radius: 6px; }
 .land-crop-image {
-  width: clamp(30px, calc(38px * var(--font-scale)), 62px);
-  height: clamp(30px, calc(38px * var(--font-scale)), 62px);
+  width: clamp(42px, calc(54px * var(--font-scale)), 90px);
+  height: clamp(42px, calc(54px * var(--font-scale)), 90px);
   object-fit: contain;
   margin: 5px auto 3px;
   display: block;
@@ -880,8 +880,8 @@ body.light-theme .land-cell.land-level-4 { background: #d4af37; border-color: #b
   font-size: calc(14px * var(--font-scale));
 }
 .farm-grid.mini .land-crop-image {
-  width: clamp(24px, calc(30px * var(--font-scale)), 48px);
-  height: clamp(24px, calc(30px * var(--font-scale)), 48px);
+  width: clamp(32px, calc(42px * var(--font-scale)), 66px);
+  height: clamp(32px, calc(42px * var(--font-scale)), 66px);
   margin: 3px auto 2px;
 }
 .farm-grid.mini .phase-name,
@@ -901,10 +901,19 @@ body.light-theme .land-cell.land-level-4 { background: #d4af37; border-color: #b
   padding: 8px;
   display: grid;
   gap: 3px;
+  justify-items: center;
+  text-align: center;
+}
+.bag-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 .thumb-wrap {
-  width: clamp(40px, calc(48px * var(--font-scale)), 72px);
-  height: clamp(40px, calc(48px * var(--font-scale)), 72px);
+  width: clamp(50px, calc(58px * var(--font-scale)), 88px);
+  height: clamp(50px, calc(58px * var(--font-scale)), 88px);
   border: 1px solid var(--line);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
@@ -937,15 +946,24 @@ body.light-theme .thumb-wrap {
 .bag-item .name {
   font-weight: 700;
   font-size: calc(15px * var(--font-scale));
+  width: 100%;
 }
 .bag-item .meta {
   font-size: calc(12px * var(--font-scale));
   color: var(--sub);
+  width: 100%;
 }
 .bag-item .count {
   font-size: calc(18px * var(--font-scale));
   font-weight: 700;
   color: var(--accent);
+  width: 100%;
+}
+.bag-item .bag-count-right {
+  width: auto;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
 }
 
 .accounts-grid {

@@ -21,12 +21,11 @@ function ensureMatureCountdownTimer() {
 
 function renderLandPhaseText(landLevel, land) {
     if (landLevel <= 0) return '未解锁';
-    const base = String((land && land.phaseName) || '');
     const remain = Number((land && land.matureInSec) || 0);
     if (remain > 0) {
-        return `${base} · <span class="mature-countdown" data-remain="${remain}">${fmtRemainSec(remain)}后成熟</span>`;
+        return `<span class="mature-countdown" data-remain="${remain}">${fmtRemainSec(remain)}后成熟</span>`;
     }
-    return base;
+    return '';
 }
 
 // 农场加载
@@ -51,14 +50,6 @@ async function loadFarm() {
         if (l.status === 'stealable') cls = 'harvestable'; // 复用样式
         const landLevel = Number(l.level || 0);
         const landLevelClass = `land-level-${Math.max(0, Math.min(4, landLevel))}`;
-        const landTypeNameMap = {
-            0: '未解锁',
-            1: '黄土地',
-            2: '红土地',
-            3: '黑土地',
-            4: '金土地'
-        };
-        const landTypeName = landTypeNameMap[Math.max(0, Math.min(4, landLevel))] || '土地';
         const phaseText = renderLandPhaseText(landLevel, l);
 
         let needs = [];
@@ -71,7 +62,6 @@ async function loadFarm() {
                 ${renderLandCropImage(l)}
                 <span class="plant-name">${l.plantName || '-'}</span>
                 <span class="phase-name">${phaseText}</span>
-                <span class="land-meta">${landTypeName}</span>
                 ${needs.length ? `<span class="needs">${needs.join(' ')}</span>` : ''}
             </div>`;
     }).join('');
@@ -148,20 +138,12 @@ window.toggleFriend = async (gid) => {
     }
 
     const statusClass = { empty: 'empty', locked: 'empty', stealable: 'harvestable', harvested: 'empty', dead: 'dead', growing: 'growing' };
-    const landTypeNameMap = {
-        0: '未解锁',
-        1: '黄土地',
-        2: '红土地',
-        3: '黑土地',
-        4: '金土地'
-    };
     el.innerHTML = `
         <div class="farm-grid mini">
             ${data.lands.map(l => {
         let cls = statusClass[l.status] || 'empty';
         const landLevel = Number(l.level || 0);
         const landLevelClass = `land-level-${Math.max(0, Math.min(4, landLevel))}`;
-        const landTypeName = landTypeNameMap[Math.max(0, Math.min(4, landLevel))] || '土地';
         const phaseText = renderLandPhaseText(landLevel, l);
         let needs = [];
         if (l.needWater) needs.push('水');
@@ -173,7 +155,6 @@ window.toggleFriend = async (gid) => {
                         ${renderLandCropImage(l)}
                         <span class="plant-name">${l.plantName || '-'}</span>
                         <span class="phase-name">${phaseText}</span>
-                        <span class="land-meta">${landTypeName}</span>
                          ${needs.length ? `<span class="needs">${needs.join(' ')}</span>` : ''}
                     </div>`;
     }).join('')}
@@ -204,14 +185,12 @@ window.friendQuickOp = async (event, gid, opType) => {
             const data = await api(`/api/friend/${gid}/lands`);
             if (data && data.lands) {
                 const statusClass = { empty: 'empty', locked: 'empty', stealable: 'harvestable', harvested: 'empty', dead: 'dead', growing: 'growing' };
-                const landTypeNameMap = { 0: '未解锁', 1: '黄土地', 2: '红土地', 3: '黑土地', 4: '金土地' };
                 landsEl.innerHTML = `
                     <div class="farm-grid mini">
                         ${data.lands.map(l => {
                     const cls = statusClass[l.status] || 'empty';
                     const landLevel = Number(l.level || 0);
                     const landLevelClass = `land-level-${Math.max(0, Math.min(4, landLevel))}`;
-                    const landTypeName = landTypeNameMap[Math.max(0, Math.min(4, landLevel))] || '土地';
                     const phaseText = renderLandPhaseText(landLevel, l);
                     const needs = [];
                     if (l.needWater) needs.push('水');
@@ -223,7 +202,6 @@ window.friendQuickOp = async (event, gid, opType) => {
                                     ${renderLandCropImage(l)}
                                     <span class="plant-name">${l.plantName || '-'}</span>
                                     <span class="phase-name">${phaseText}</span>
-                                    <span class="land-meta">${landTypeName}</span>
                                     ${needs.length ? `<span class="needs">${needs.join(' ')}</span>` : ''}
                                 </div>`;
                 }).join('')}
@@ -705,18 +683,20 @@ async function loadBag() {
     }
     listEl.innerHTML = displayItems.map(it => `
       <div class="bag-item">
-        <div class="thumb-wrap ${it.image ? '' : 'fallback'}">
-          ${it.image
-            ? `<img class="bag-thumb" src="${escapeHtml(String(it.image))}" alt="${escapeHtml(String(it.name || '物品'))}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'; this.closest('.thumb-wrap').classList.add('fallback')">`
-            : ''}
-          <span class="bag-thumb-fallback">${escapeHtml(String((it.name || '物').slice(0, 1)))}</span>
+        <div class="bag-top">
+          <div class="thumb-wrap ${it.image ? '' : 'fallback'}">
+            ${it.image
+              ? `<img class="bag-thumb" src="${escapeHtml(String(it.image))}" alt="${escapeHtml(String(it.name || '物品'))}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'; this.closest('.thumb-wrap').classList.add('fallback')">`
+              : ''}
+            <span class="bag-thumb-fallback">${escapeHtml(String((it.name || '物').slice(0, 1)))}</span>
+          </div>
+          ${it.hoursText
+              ? `<div class="count bag-count-right" style="color:var(--primary)">${escapeHtml(String(it.hoursText))}</div>`
+              : `<div class="count bag-count-right">x${Number(it.count || 0)}</div>`}
         </div>
         <div class="name">${escapeHtml(String(it.name || ('物品' + (it.id || ''))))}</div>
         <div class="meta">ID: ${Number(it.id || 0)}${it.uid ? ` · UID: ${Number(it.uid)}` : ''}</div>
         <div class="meta">类型: ${Number(it.itemType || 0)}${Number(it.level || 0) > 0 ? ` · 等级: ${Number(it.level)}` : ''}${Number(it.price || 0) > 0 ? ` · 价格: ${Number(it.price)}` : ''}</div>
-        ${it.hoursText
-            ? `<div class="count" style="color:var(--primary)">${escapeHtml(String(it.hoursText))}</div>`
-            : `<div class="count">x${Number(it.count || 0)}</div>`}
       </div>
     `).join('');
 }
@@ -741,7 +721,24 @@ async function loadDailyGifts() {
     const growthTasks = growth && Array.isArray(growth.tasks) ? growth.tasks : [];
     const growthCompleted = Number(growth && growth.completedCount || 0);
     const growthTotal = Number(growth && growth.totalCount || 0);
-    const growthPct = growthTotal > 0 ? Math.max(0, Math.min(100, (growthCompleted / growthTotal) * 100)) : 0;
+    let growthPct = 0;
+    if (growthTasks.length > 0) {
+        let sumProgress = 0;
+        let sumTotal = 0;
+        for (const t of growthTasks) {
+            const progress = Math.max(0, Number(t && t.progress || 0));
+            const total = Math.max(0, Number(t && t.totalProgress || 0));
+            if (total > 0) {
+                sumProgress += Math.min(progress, total);
+                sumTotal += total;
+            }
+        }
+        if (sumTotal > 0) growthPct = Math.max(0, Math.min(100, (sumProgress / sumTotal) * 100));
+    }
+    if (growthPct <= 0 && growthTotal > 0) {
+        // 兜底：无明细 total 时沿用完成数量口径
+        growthPct = Math.max(0, Math.min(100, (growthCompleted / growthTotal) * 100));
+    }
     growthFillEl.style.width = `${growthPct}%`;
     if (!growthTasks.length) {
         growthListEl.innerHTML = '<div class="growth-task-row"><span class="growth-task-name"><i class="fas fa-info-circle"></i> 暂无数据</span><span class="growth-task-status">--</span></div>';
