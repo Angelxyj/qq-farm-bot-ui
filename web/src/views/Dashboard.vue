@@ -3,7 +3,6 @@ import { useIntervalFn } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
-import BaseCheckbox from '@/components/ui/BaseCheckbox.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { useAccountStore } from '@/stores/account'
@@ -36,7 +35,7 @@ const filter = reactive({
   module: '',
   event: '',
   keyword: '',
-  isWarn: false,
+  isWarn: '',
 })
 
 const modules = [
@@ -45,24 +44,40 @@ const modules = [
   { label: '好友', value: 'friend' },
   { label: '仓库', value: 'warehouse' },
   { label: '任务', value: 'task' },
-  { label: '系统', value: 'sys' },
+  { label: '系统', value: 'system' },
 ]
 
 const events = [
   { label: '所有事件', value: '' },
-  { label: '收获', value: 'harvest' },
-  { label: '偷菜', value: 'steal' },
-  { label: '浇水', value: 'water' },
-  { label: '除草', value: 'weed' },
-  { label: '除虫', value: 'bug' },
-  { label: '施肥', value: 'fertilize' },
-  { label: '种植', value: 'plant' },
-  { label: '帮浇', value: 'helpWater' },
-  { label: '帮草', value: 'helpWeed' },
-  { label: '帮虫', value: 'helpBug' },
-  { label: '任务', value: 'taskClaim' },
-  { label: '出售', value: 'sell' },
-  { label: '升级', value: 'upgrade' },
+  { label: '农场巡查', value: 'farm_cycle' },
+  { label: '收获作物', value: 'harvest_crop' },
+  { label: '清理枯株', value: 'remove_plant' },
+  { label: '种植种子', value: 'plant_seed' },
+  { label: '施加化肥', value: 'fertilize' },
+  { label: '土地推送', value: 'lands_notify' },
+  { label: '选择种子', value: 'seed_pick' },
+  { label: '购买种子', value: 'seed_buy' },
+  { label: '购买化肥', value: 'fertilizer_buy' },
+  { label: '开启礼包', value: 'fertilizer_gift_open' },
+  { label: '获取任务', value: 'task_scan' },
+  { label: '完成任务', value: 'task_claim' },
+  { label: '免费礼包', value: 'mall_free_gifts' },
+  { label: '分享奖励', value: 'daily_share' },
+  { label: '会员礼包', value: 'vip_daily_gift' },
+  { label: '月卡礼包', value: 'month_card_gift' },
+  { label: '图鉴奖励', value: 'illustrated_rewards' },
+  { label: '邮箱领取', value: 'email_rewards' },
+  { label: '出售成功', value: 'sell_success' },
+  { label: '土地升级', value: 'upgrade_land' },
+  { label: '土地解锁', value: 'unlock_land' },
+  { label: '好友巡查', value: 'friend_cycle' },
+  { label: '访问好友', value: 'visit_friend' },
+]
+
+const logs = [
+  { label: '所有等级', value: '' },
+  { label: '普通', value: 'info' },
+  { label: '警告', value: 'warn' },
 ]
 
 const displayName = computed(() => {
@@ -213,6 +228,25 @@ function formatLogTime(timeStr: string) {
   return parts.length > 1 ? parts[1] : timeStr
 }
 
+function getOpIcon(key: string | number) {
+  const map: Record<string, string> = {
+    harvest: 'i-carbon-corn',
+    water: 'i-carbon-rain-drop',
+    weed: 'i-carbon-agriculture-analytics', // using agriculture analytics for weed/grass
+    bug: 'i-carbon-pest',
+    fertilize: 'i-carbon-chemistry',
+    plant: 'i-carbon-sprout',
+    upgrade: 'i-carbon-upgrade',
+    steal: 'i-carbon-collaborate', // using collaborate for steal as interaction
+    helpWater: 'i-carbon-rain-drop',
+    helpWeed: 'i-carbon-agriculture-analytics',
+    helpBug: 'i-carbon-pest',
+    taskClaim: 'i-carbon-task',
+    sell: 'i-carbon-currency',
+  }
+  return map[String(key)] || 'i-carbon-circle-dash'
+}
+
 function getOpName(key: string | number) {
   const map: Record<string, string> = {
     harvest: '收获',
@@ -221,13 +255,13 @@ function getOpName(key: string | number) {
     bug: '除虫',
     fertilize: '施肥',
     plant: '种植',
+    upgrade: '升级',
     steal: '偷菜',
-    helpWater: '帮浇',
-    helpWeed: '帮草',
-    helpBug: '帮虫',
+    helpWater: '帮浇水',
+    helpWeed: '帮除草',
+    helpBug: '帮除虫',
     taskClaim: '任务',
     sell: '出售',
-    upgrade: '升级',
   }
   return map[String(key)] || String(key)
 }
@@ -245,7 +279,7 @@ function refresh() {
       module: filter.module || undefined,
       event: filter.event || undefined,
       keyword: filter.keyword || undefined,
-      isWarn: filter.isWarn ? 'true' : undefined,
+      isWarn: filter.isWarn === 'warn' ? true : filter.isWarn === 'info' ? false : undefined,
     })
     accountStore.fetchLogs()
     bagStore.fetchBag(currentAccountId.value)
@@ -447,6 +481,13 @@ useIntervalFn(updateCountdowns, 1000)
                 @change="refresh"
               />
 
+              <BaseSelect
+                v-model="filter.isWarn"
+                :options="logs"
+                class="w-32"
+                @change="refresh"
+              />
+
               <BaseInput
                 v-model="filter.keyword"
                 placeholder="关键词..."
@@ -454,12 +495,6 @@ useIntervalFn(updateCountdowns, 1000)
                 clearable
                 @keyup.enter="refresh"
                 @clear="refresh"
-              />
-
-              <BaseCheckbox
-                v-model="filter.isWarn"
-                label="只看异常"
-                @change="refresh"
               />
 
               <BaseButton
@@ -521,10 +556,13 @@ useIntervalFn(updateCountdowns, 1000)
             <div class="i-carbon-chart-column" />
             <span>今日统计</span>
           </h3>
-          <div class="grid grid-cols-3 gap-2">
-            <div v-for="(val, key) in (status?.operations || {})" :key="key" class="rounded bg-gray-50 p-2 text-center dark:bg-gray-700/30">
-              <div class="mb-1 text-[10px] text-gray-500">
-                {{ getOpName(key) }}
+          <div class="grid grid-cols-2 gap-2">
+            <div v-for="(val, key) in (status?.operations || {})" :key="key" class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 dark:bg-gray-700/30">
+              <div class="flex items-center gap-2">
+                <div :class="getOpIcon(key)" class="text-lg text-blue-500" />
+                <div class="text-xs text-gray-500">
+                  {{ getOpName(key) }}
+                </div>
               </div>
               <div class="text-sm font-bold">
                 {{ val }}
