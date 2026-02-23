@@ -4,6 +4,7 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const { CONFIG } = require('./config');
@@ -12,6 +13,7 @@ const store = require('./store'); // 引入 store 模块
 const { QRLoginSession, MiniProgramLoginSession } = require('./qrlogin');
 const { CookieUtils } = require('./qrutils');
 const { getResourcePath } = require('./runtime-paths');
+const { getLevelExpProgress } = require('./gameConfig');
 
 const hashPassword = (pwd) => crypto.createHash('sha256').update(String(pwd || '')).digest('hex');
 
@@ -46,8 +48,13 @@ function startAdminServer(dataProvider) {
         next();
     });
 
-    const panelDir = getResourcePath('panel');
-    app.use(express.static(panelDir));
+    const frontendDist = path.join(__dirname, '../frontend/dist');
+    if (fs.existsSync(frontendDist)) {
+        app.use(express.static(frontendDist));
+    } else {
+        console.warn('Frontend build not found at:', frontendDist);
+        app.get('/', (req, res) => res.send('Frontend build not found. Please build the frontend project.'));
+    }
     app.use('/game-config', express.static(getResourcePath('gameConfig')));
 
     // 登录与鉴权
@@ -96,7 +103,7 @@ function startAdminServer(dataProvider) {
     });
 
     app.get('/api/ping', (req, res) => {
-        res.json({ ok: true, data: { ok: true } });
+        res.json({ ok: true, data: { ok: true, uptime: process.uptime() } });
     });
 
     app.post('/api/logout', (req, res) => {
@@ -115,6 +122,11 @@ function startAdminServer(dataProvider) {
 
         try {
             const data = provider.getStatus(id);
+            if (data && data.status) {
+                const { level, exp } = data.status;
+                const progress = getLevelExpProgress(level, exp);
+                data.levelProgress = progress;
+            }
             res.json({ ok: true, data });
         } catch (e) {
             res.json({ ok: false, error: e.message });
@@ -427,6 +439,7 @@ function startAdminServer(dataProvider) {
             if (result.status === 'OK') {
                 const ticket = result.ticket;
                 const uin = result.uin || '';
+                const nickname = result.nickname || ''; // 获取昵称
                 const appid = '1112386029'; // Farm appid
 
                 const authCode = await MiniProgramLoginSession.getAuthCode(ticket, appid);
@@ -436,7 +449,7 @@ function startAdminServer(dataProvider) {
                     avatar = `https://q1.qlogo.cn/g?b=qq&nk=${uin}&s=640`;
                 }
 
-                res.json({ ok: true, data: { status: 'OK', code: authCode, uin, avatar } });
+                res.json({ ok: true, data: { status: 'OK', code: authCode, uin, avatar, nickname } });
             } else if (result.status === 'Used') {
                 res.json({ ok: true, data: { status: 'Used' } });
             } else if (result.status === 'Wait') {
@@ -449,8 +462,15 @@ function startAdminServer(dataProvider) {
         }
     });
 
-    app.get('/', (req, res) => {
-        res.sendFile(path.join(panelDir, 'index.html'));
+    app.get('*', (req, res) => {
+        if (req.path.startsWith('/api') || req.path.startsWith('/game-config')) {
+             return res.status(404).json({ ok: false, error: 'Not Found' });
+        }
+        if (fs.existsSync(frontendDist)) {
+            res.sendFile(path.join(frontendDist, 'index.html'));
+        } else {
+            res.status(404).send('Frontend build not found. Please build the frontend project.');
+        }
     });
 
     const port = CONFIG.adminPort || 3000;

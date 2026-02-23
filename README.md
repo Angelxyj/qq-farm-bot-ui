@@ -33,72 +33,80 @@
 - 按等级要求
 
 ## 环境要求
-- 源码运行：Node.js 18+
+- 源码运行：Node.js 20+，pnpm（推荐通过 corepack 启用）
 - 二进制发布运行：无需安装 Node.js
 
-## 安装与启动
+## 安装与启动（源码方式）
 
 ### Windows
 
-1. 安装 Node.js（建议 18+）
+1. 安装 Node.js（建议 20+）
 - 到官网下载安装包：`https://nodejs.org/`
 - 安装完成后在 PowerShell 验证：
 
 ```powershell
 node -v
-npm -v
+corepack enable
+pnpm -v
 ```
 
 2. 进入项目目录并安装依赖
 
 ```powershell
 cd D:\Projects\qq-farm-bot-ui
-npm install
+pnpm install
+# 安装前端依赖并构建
+pnpm frontend:install
+pnpm frontend:build
 ```
 
 3. 启动项目
 
 ```powershell
-node client.js
+pnpm start
 ```
 
 4. （可选）设置管理密码后启动
 
 ```powershell
 $env:ADMIN_PASSWORD="你的强密码"
-node client.js
+pnpm start
 ```
 
 ### Linux（Ubuntu/Debian 示例）
 
-1. 安装 Node.js 18+
+1. 安装 Node.js 20+
 
 ```bash
 sudo apt update
 sudo apt install -y curl
-curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 node -v
-npm -v
+corepack enable
+pnpm -v
 ```
 
 2. 进入项目目录并安装依赖
 
 ```bash
 cd /path/to/qq-farm-bot-ui
-npm install
+pnpm install
+# 安装前端依赖并构建
+pnpm frontend:install
+pnpm frontend:build
 ```
 
 3. 启动项目
 
 ```bash
-node client.js
+pnpm start
 ```
 
 4. 设置管理密码后启动
 
 ```bash
-ADMIN_PASSWORD='你的强密码' node client.js
+ADMIN_PASSWORD='你的强密码' pnpm start
 ```
 
 默认面板端口为 `3000`：
@@ -156,7 +164,7 @@ docker compose down
 
 ```yaml
 environment:
-  - ADMIN_PASSWORD=你的强密码
+  ADMIN_PASSWORD: 你的强密码
 ```
 
 修改后重新启动：
@@ -170,11 +178,11 @@ docker compose up -d
 ### 构建环境（开发者机器）
 
 ```bash
-npm install
+pnpm install
 ```
 
 ```bash
-npm run build:release
+pnpm run build:release
 ```
 
 构建产物输出在 `dist/` 目录。
@@ -204,7 +212,7 @@ npm run build:release
 
 ```text
 client.js                    # 主进程：worker 管理、日志聚合、配置广播
-src/admin.js                 # HTTP API + 面板静态资源
+src/admin.js                 # HTTP API + 前端静态资源
 src/worker.js                # 单账号 worker（统一调度 + 状态同步）
 src/farm.js                  # 农场逻辑
 src/friend.js                # 好友逻辑
@@ -213,13 +221,12 @@ src/warehouse.js             # 背包与出售逻辑
 src/store.js                 # 全局配置与账号持久化
 data/store.json              # 运行配置持久化
 data/accounts.json           # 账号数据持久化
-panel/index.html             # 面板页面结构
-panel/style.css              # 面板样式
-panel/js/core.js             # 前端基础状态/API/工具
-panel/js/polling-accounts.js # 轮询、账号与日志主流程
-panel/js/pages.js            # 农场/好友/分析/背包页面逻辑
-panel/js/modal-accounts.js   # 添加账号弹窗/扫码登录逻辑
-panel/js/init.js             # 前端初始化与事件绑定
+gameConfig/                  # 游戏静态配置
+proto/                       # Protobuf 协议定义
+frontend/                    # 新版 Web 面板（Vue 3 + Vite）
+  src/                       # 前端源代码
+  dist/                      # 构建后的静态资源（由 Docker 或构建脚本生成）
+panel/                       # 旧版前端代码（仅用于参考）
 ```
 
 ## 特别感谢

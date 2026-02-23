@@ -511,7 +511,7 @@ function addOrUpdateAccount(acc) {
     if (acc.id) {
         const idx = data.accounts.findIndex(a => a.id === acc.id);
         if (idx >= 0) {
-            data.accounts[idx] = { ...data.accounts[idx], ...acc, updatedAt: Date.now() };
+            data.accounts[idx] = { ...data.accounts[idx], ...acc, name: acc.name !== undefined ? acc.name : data.accounts[idx].name, updatedAt: Date.now() };
         }
     } else {
         const id = data.nextId++;

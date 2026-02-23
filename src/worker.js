@@ -20,7 +20,7 @@ const { processInviteCodes } = require('./invite');
 const { setLogHook, log, toNum } = require('./utils');
 const { setRecordGoldExpHook } = require('./status');
 const { getLevelExpProgress } = require('./gameConfig');
-const { getAutomation, getPreferredSeed, getConfigSnapshot, applyConfigSnapshot } = require('./store');
+const { getAutomation, getPreferredSeed, getConfigSnapshot, applyConfigSnapshot, addOrUpdateAccount } = require('./store');
 
 // 捕获日志发送给主进程
 setLogHook((tag, msg, isWarn, meta) => {
